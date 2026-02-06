@@ -1,0 +1,684 @@
+%初始化环境
+clear; close all; clc;
+rng(2024);  % 保证结果一致
+%% 参数
+j = sqrt(-1);
+f_c = 5*1e9;                                  % carrier frequency 
+c = 3.0*1e8;                                  % speed of light
+sigma = 1.5;
+% velocity parameters
+v_T = 10;                                       % Tx velocity                             
+v_R = 8;                                       % Rx velocity
+eta_azi_T = pi*1/2;                               % Tx motion direction
+eta_ver_T = 0;
+eta_azi_R = pi*1/2;                                 % Rx motion direction
+% antenna
+P = 60;                                        % number of transmit antennas, Tx
+P_s = 40;
+p = 1;
+p_p = 1;
+p_s = 1;
+p_s_p_s = 4;
+psi_azi_T = pi/3;
+psi_ver_T = pi/4;
+psi_azi_T_s = pi/6;
+psi_ver_T_s = pi/8;
+% RIS
+x_RIS = 80;                                   % x-axis of RIS
+y_RIS = 30;                                   % y-axis of RIS   
+z_RIS = 20;                                   % z-axis of RIS
+x_m_sub = 80;                                 % O --> m_sub-th sub-array in RIS
+y_m_sub = 30;                                     
+z_m_sub = 20;                                   
+M_x = 40;                                    % number of columns, M_x
+M_z = 40;                                    % number of rows, M_z
+
+
+
+% cluster
+L = 20;                                       % number of rays in one cluster
+xi_R_n_0 = 200;
+xi_T_n_1_0 = 200;
+% tau_cluster_0 = 2*sqrt(D_0^2 + H_0^2)/c;
+mu_AAoA = 2*pi/3;
+sigma_AAoA = 10/180*pi;                       % AAoA spread, [rad] 20 degrees, 
+mu_EAoA = pi/6;
+sigma_EAoA = 5/180*pi;                        % EAoA spread, [rad] 10 degrees
+alpha_T_n_1_0 = pi/3;                         % 初始方位角（rad）
+beta_T_n_1_0 = pi/6; 
+
+% other reconfigurable parameters setting
+H_0 = 0;
+D_0 = 100;
+K = 2;                                    % Rice factor
+t = 2;
+tt = 0;
+alpha = 0.6;
+% 定义输入变量的范围
+delta_f_c = 0 : 0.15 : 30;
+N = length(delta_f_c);
+fprintf('正在生成 %d 个样本数据...\n', N);
+% 计算理论值
+%感知信道
+rho_FCF_LoS_S = rho_FCF_pq_S(j, c, sigma, f_c, delta_f_c, v_T, v_R, eta_azi_T, eta_azi_R, t, D_0, P, P_s, p, p_s, ...
+                                        psi_ver_T, psi_azi_T, psi_ver_T_s, psi_azi_T_s);
+
+rho_FCF_NLoS_cluster_S = rho_FCF_cluster_S(j, c, f_c, delta_f_c, v_T, eta_azi_T, t, xi_T_n_1_0, D_0, P, P_s, p, p_s, ...
+                                           mu_AAoA, sigma_AAoA, mu_EAoA, sigma_EAoA, psi_ver_T, psi_azi_T, psi_ver_T_s, psi_azi_T_s);
+chi_m_sub = 0.8 + 0.2*rand();
+varphi_m_sud = 2*pi*rand();
+rho_FCF_VLoS_RIS_S = rho_FCF_RIS_S(j, c, f_c, delta_f_c, v_T, eta_azi_T, t, H_0, ...
+                                       x_m_sub, y_m_sub, z_m_sub, P, P_s, p, p_s, ...
+                                       psi_ver_T, psi_azi_T, psi_ver_T_s, psi_azi_T_s, chi_m_sub, varphi_m_sud);
+abs_rho_NLoS_S = abs(rho_FCF_NLoS_cluster_S);
+abs_rho_VLoS_S = abs(rho_FCF_VLoS_RIS_S); 
+abs_rho_LoS_S  = abs(rho_FCF_LoS_S);
+smooth_mixed_S = (1/(K+1)) * abs_rho_NLoS_S + ...
+                 (K/(K+1)) * (alpha * abs_rho_VLoS_S + (1-alpha) * abs_rho_LoS_S) ;
+rho_FCF_LoS_cluster_RIS_S = smooth_mixed_S / smooth_mixed_S(1);
+% 检查数据维度
+fprintf('rho_FCF_LoS_S 大小: %s\n', mat2str(size(rho_FCF_LoS_S)));
+fprintf('rho_FCF_NLoS_cluster_S 大小: %s\n', mat2str(size(rho_FCF_NLoS_cluster_S)));
+fprintf('rho_FCF_VLoS_RIS_S 大小: %s\n', mat2str(size(rho_FCF_VLoS_RIS_S)));
+fprintf('rho_FCF_LoS_cluster_RIS_S 大小: %s\n', mat2str(size(rho_FCF_LoS_cluster_RIS_S)));
+% === 数据质量检查和修复 ===
+fprintf('\n=== 数据质量检查 ===\n');
+fprintf('LoS数据范围: [%.6f, %.6f]\n', min(abs(rho_FCF_LoS_S)), max(abs(rho_FCF_LoS_S)));
+fprintf('NLoS数据范围: [%.6f, %.6f]\n', min(abs(rho_FCF_NLoS_cluster_S)), max(abs(rho_FCF_NLoS_cluster_S)));
+fprintf('VLoS数据范围: [%.6f, %.6f]\n', min(abs(rho_FCF_VLoS_RIS_S)), max(abs(rho_FCF_VLoS_RIS_S)));
+fprintf('rho_FCF_LoS_cluster_RIS_S数据范围: [%.6f, %.6f]\n', min(abs(rho_FCF_LoS_cluster_RIS_S)), max(abs(rho_FCF_LoS_cluster_RIS_S)));
+%% 生成训练数据集 
+num_samples = 1000;  % 增加样本数量
+inputs = zeros(9, num_samples);  % 增加到12维输入特征
+targets = zeros(4, num_samples);   % 3个输出（LoS, NLoS, VLoS）
+sample_weights = ones(1, num_samples);%初始化样本
+fprintf('正在生成 %d 个训练样本...\n', num_samples);
+for i = 1:num_samples
+    r = rand(); % 生成一个随机数来决定路径类型
+    if r < 0.25  % 25% LoS
+        path_focus = 1;
+        noise_scale = [0.005, 0.02, 0.02, 0.01];
+        sample_weights(i) = 3.0;
+    elseif r < 0.50 % 25% NLoS
+        path_focus = 2;
+        noise_scale = [0.01, 0.005, 0.02, 0.01];
+        sample_weights(i) = 1.0;
+    elseif r < 0.75 % 25% VLoS
+        path_focus = 3;
+        noise_scale = [0.01, 0.02, 0.005, 0.01];
+        sample_weights(i) = 1.0;
+    else % 25% 混合路径
+        path_focus = 4;
+        noise_scale = [0.01, 0.01, 0.01, 0.005]; % 给混合路径本身最小的噪声
+        sample_weights(i) = 2.0; % 混合路径也比较重要，给中等权重
+    end
+    idx = randi(N); % 使用随机采样简化，您的智能采样函数也可保留
+    delta_f_c_sample = delta_f_c(idx);
+
+    v_T_sample = 5 + 10 * rand(); v_R_sample = 3 + 9 * rand();
+    D_0_sample = 50 + 150 * rand();
+    psi_azi_T_sample = pi/6 + pi/3 * rand(); psi_azi_T_s_sample = pi/6 + pi/3 * rand();
+    psi_ver_T_sample = pi/8 + pi/4 * rand(); psi_ver_T_s_sample = pi/8 + pi/4 * rand();
+    
+    % RIS参数随机化
+    chi_m_sub_sample = 0.7 + 0.3*rand();
+    
+    % 构造更丰富的输入特征向量
+    inputs(:, i) = [
+        delta_f_c_sample;                              % 1. 归一化天线间距
+        v_T_sample/c;                             % 2. 归一化发射端速度
+        v_R_sample/c;                             % 3. 归一化接收端速度
+        D_0_sample;                        % 4. 归一化距离
+        psi_azi_T_sample;                         % 5. 发射端方位角
+        psi_azi_T_s_sample;                         % 6. 接收端方位角
+        cos(psi_azi_T_sample);                    % 7. 余弦特征
+        sin(psi_azi_T_s_sample);                    % 8. 正弦特征
+        path_focus;                               % 9. 路径类型标识
+    ];
+    % 对应的理论输出值
+    base_targets = [
+        abs(rho_FCF_LoS_S(idx));
+        abs(rho_FCF_NLoS_cluster_S(idx));
+        abs(rho_FCF_VLoS_RIS_S(idx));
+        abs(rho_FCF_LoS_cluster_RIS_S(idx));
+    ];
+    
+    % 添加适应性噪声
+for k = 1:4
+    noise = noise_scale(k) * randn();
+
+    % 添加额外“震荡扰动”：仅用于 NLoS 和 Total（路径2和4）
+    if k == 2 || k == 4
+        osc_factor = 1 + 0.1 * sin(2*pi*delta_f_c_sample/10 + rand()*2*pi);  % 控制震荡频率/相位
+    else
+        osc_factor = 1;
+    end
+
+    % 加入扰动后再加噪声，防止 >1
+    value = base_targets(k) * osc_factor * (1 + noise);
+    targets(k, i) = min(1.0, max(0, value));  % 限制输出在 [0,1]
+end
+end
+
+fprintf('数据生成完毕。输入矩阵大小: %s, 目标矩阵大小: %s\n', ...
+        mat2str(size(inputs)), mat2str(size(targets)));
+%% 数据预处理
+% 输入标准化 - 使用z-score标准化
+input_mean = mean(inputs, 2);
+input_std = std(inputs, 0, 2) + eps;
+inputs_normalized = (inputs - input_mean) ./ input_std;
+
+% 输出标准化 - 分别处理每种路径
+% target_mean = mean(targets, 2);
+% target_std = std(targets, 0, 2) + eps;
+% targets_normalized = (targets - target_mean) ./ target_std;
+targets_normalized = targets;
+
+% 针对性数据增强
+augment_ratio = 0.15;
+num_augment = round(augment_ratio * num_samples);
+
+% 重点增强LoS路径数据
+los_indices = find(inputs(9,:) == 1);  % 找到LoS样本
+if ~isempty(los_indices)
+    % 选择LoS样本进行增强
+    aug_los_count = round(0.6 * num_augment);  % 60%的增强样本来自LoS
+    aug_los_indices = los_indices(randi(length(los_indices), 1, aug_los_count));
+    
+    % 其余样本随机选择
+    remaining_indices = setdiff(1:num_samples, los_indices);
+    aug_other_indices = remaining_indices(randi(length(remaining_indices), 1, num_augment - aug_los_count));
+    
+    aug_indices = [aug_los_indices, aug_other_indices];
+else
+    aug_indices = randi(num_samples, 1, num_augment);
+end
+
+inputs_aug = inputs_normalized(:, aug_indices) + 0.05 * randn(size(inputs_normalized, 1), num_augment);
+targets_aug = targets_normalized(:, aug_indices) + 0.02 * randn(size(targets_normalized, 1), num_augment);
+
+% 合并原始和增强数据
+inputs_final = [inputs_normalized, inputs_aug];
+targets_final = [targets_normalized, targets_aug];
+
+fprintf('增强后数据大小: %s\n', mat2str(size(inputs_final)));
+
+%% 改进的网络设计与训练
+% 调整网络架构 - 考虑到LoS路径的特殊性
+hiddenLayerSize = [80, 60, 40, 20];  % 稍微增大网络容量
+net = feedforwardnet(hiddenLayerSize, 'trainlm');
+
+% 网络配置
+net.input.processFcns = {};
+net.output.processFcns = {};
+
+% 优化的训练参数
+net.trainParam.epochs = 1500;           % 增加最大训练轮数
+net.trainParam.max_fail = 100;          % 适中的早停容忍度
+net.trainParam.min_grad = 1e-8;       
+net.trainParam.mu = 0.001;             
+net.trainParam.mu_dec = 0.1;           
+net.trainParam.mu_inc = 10;            
+net.trainParam.mu_max = 1e10;          
+net.performFcn = 'mse';
+net.trainParam.goal = 1e-12;           
+net.trainParam.show = 25;              
+net.trainParam.showWindow = true;      
+net.trainParam.showCommandLine = true; 
+
+% 激活函数设置 - 混合激活函数
+for i = 1:length(hiddenLayerSize)
+    if i <= 2
+        net.layers{i}.transferFcn = 'tansig'; % 前两层使用tansig
+    else
+        net.layers{i}.transferFcn = 'logsig'; % 后面层使用logsig
+    end
+end
+net.layers{end}.transferFcn = 'purelin'; % 输出层
+
+% 数据集划分 - 确保LoS样本在各集合中都有代表
+net.divideFcn = 'dividerand';
+net.divideParam.trainRatio = 0.80;     
+net.divideParam.valRatio = 0.10;       
+net.divideParam.testRatio = 0.10;      
+
+% 权重初始化
+net = init(net);
+
+% 使用Xavier初始化
+for i = 1:length(net.layers)
+    if ~isempty(net.IW{i,1})
+        [fan_in, fan_out] = size(net.IW{i,1});
+        limit = sqrt(6 / (fan_in + fan_out));
+        net.IW{i,1} = 2 * limit * rand(size(net.IW{i,1})) - limit;
+    end
+    for j = 1:length(net.layers)
+        if ~isempty(net.LW{i,j})
+            [fan_in, fan_out] = size(net.LW{i,j});
+            limit = sqrt(6 / (fan_in + fan_out));
+            net.LW{i,j} = 2 * limit * rand(size(net.LW{i,j})) - limit;
+        end
+    end
+end
+
+% 执行训练
+[net, tr] = train(net, inputs_final, targets_final);
+fprintf('训练完成，实际轮数: %d\n', tr.num_epochs);
+%% 模型测试和评估
+% 使用原始理论数据进行测试
+test_inputs = zeros(9, N);
+for i = 1:N
+    test_inputs(:, i) = [
+        delta_f_c(i);
+        v_T/c;
+        v_R/c;
+        D_0;
+        psi_azi_T;
+        psi_azi_T_s;
+        cos(psi_azi_T);        
+        sin(psi_azi_T_s);
+        4;  % 混合路径类型
+    ];
+end
+
+% 标准化测试输入
+test_inputs_normalized = (test_inputs - input_mean) ./ input_std;
+
+% 预测
+% predictions_normalized = net(test_inputs_no
+% rmalized);
+predictions = net(test_inputs_normalized);
+predictions(1,:) = predictions(1,:)/predictions(1,1);
+% 反标准化
+% predictions = predictions_normalized .* target_std + target_mean;
+predictions = max(predictions, 0); % 确保非负
+predictions = min(predictions, 1);
+
+% 理论值输出
+theory_values = [
+    abs(rho_FCF_LoS_S);
+    abs(rho_FCF_NLoS_cluster_S);
+    abs(rho_FCF_VLoS_RIS_S);
+    abs(rho_FCF_LoS_cluster_RIS_S);
+];
+%% 绘图
+sample_step = 10;  % 调整这个值控制稀疏程度
+delta_f_c_sparse = delta_f_c(1:sample_step:end);
+figure('Position', [100, 100, 1000, 1000]);
+hold on;
+
+% 路径信息
+path_names = {'LoS, S', 'NLoS, S', 'VLoS, S', 'LoS+NLoS+VLoS, S'};
+colors = {'b', 'c', 'm', 'g'};
+
+% 绘图并计算性能指标
+for k = 1:4
+    % 绘制理论与预测曲线
+    plot(delta_f_c, theory_values(k,:), [colors{k} '-'], 'LineWidth', 2, 'DisplayName', sprintf('%s (Theroy)', path_names{k}));
+    pred_sparse = predictions(k,1:sample_step:end);
+    plot(delta_f_c_sparse, pred_sparse, [colors{k} '--d'], 'LineWidth', 1.5, 'DisplayName', sprintf('%s (MLP-NN)', path_names{k}));
+    
+    % 计算RMSE
+    y_true = theory_values(k,:);
+    y_pred = predictions(k,:);
+    RMSE = sqrt(mean((y_true - y_pred).^2));
+    
+    % 在图中添加 RMSE 标注（使用相对位置）
+    x_text_pos = 0.75;
+    y_text_pos = 0.90 - 0.05 * (k-1);  % 分层排布
+    text(x_text_pos, y_text_pos, ...
+        sprintf('%s RMSE = %.4f', path_names{k}, RMSE), ...
+        'Units', 'normalized', ...
+        'FontSize', 16, 'Color', colors{k}, ...
+        'BackgroundColor', 'white', 'EdgeColor', 'black', 'Margin', 3);
+end
+
+% 图属性设置
+xlab = xlabel('');
+set(xlab, 'Interpreter', 'latex', 'string',{'Frequency difference, $\Delta f$, [MHz]'}, 'Fontsize', 16);
+ylab = ylabel('');
+set(ylab, 'Interpreter', 'latex', 'string',{'Normalized FCFs'}, 'Fontsize', 16);
+xlim([0 30]);
+ylim([0 1]);  % y 轴限制
+xticks(0:5:30);  % x 轴取值间隔变大
+grid on
+legend('Interpreter', 'latex', 'FontSize', 16, 'Location', 'best');
+box on
+%初始化环境
+clear; close all; clc;
+rng(2024);  % 保证结果一致
+%% 参数
+j = sqrt(-1);
+f_c = 5*1e9;                                  % carrier frequency 
+c = 3.0*1e8;                                  % speed of light
+sigma = 1.5;
+% velocity parameters
+v_T = 10;                                       % Tx velocity                             
+v_R = 8;                                       % Rx velocity
+eta_azi_T = pi*1/2;                               % Tx motion direction
+eta_ver_T = 0;
+eta_azi_R = pi*1/2;                                 % Rx motion direction
+% antenna
+P = 60;                                        % number of transmit antennas, Tx
+Q = 20;                                        % number of transmit antennas, Rx
+p = 1;
+p_p = 1;
+q = 1;
+q_q = 4;
+% angles of antennas
+psi_azi_T = pi/3;
+psi_ver_T = pi/4;
+psi_azi_R = pi/3;
+psi_ver_R = pi/4;
+% RIS
+x_RIS = 80;                                   % x-axis of RIS
+y_RIS = 30;                                   % y-axis of RIS   
+z_RIS = 20;                                   % z-axis of RIS
+x_m_sub = 80;                                 % O --> m_sub-th sub-array in RIS
+y_m_sub = 30;                                     
+z_m_sub = 20;                                   
+M_x = 40;                                    % number of columns, M_x
+M_z = 40;                                    % number of rows, M_z
+% cluster
+L = 20;                                       % number of rays in one cluster
+xi_R_n_0 = 200;
+xi_T_n_1_0 = 200;
+% tau_cluster_0 = 2*sqrt(D_0^2 + H_0^2)/c;
+mu_AAoA = 2*pi/3;
+sigma_AAoA = 10/180*pi;                       % AAoA spread, [rad] 20 degrees, 
+mu_EAoA = pi/6;
+sigma_EAoA = 5/180*pi;                        % EAoA spread, [rad] 10 degrees
+alpha_T_n_1_0 = pi/3;                         % 初始方位角（rad）
+beta_T_n_1_0 = pi/6; 
+% other reconfigurable parameters setting
+H_0 = 0;
+D_0 = 100;
+K = 2;                                    % Rice factor
+t = 2;
+tt = 0;
+alpha = 0.6;
+% 定义输入变量的范围
+delta_f_c = 0 : 0.15 : 30;
+N = length(delta_f_c);
+fprintf('正在生成 %d 个样本数据...\n', N);
+% 计算理论值
+%通信信道 
+rho_FCF_LoS_C = rho_FCF_pq_C(j, c, f_c, delta_f_c, v_T, v_R, eta_azi_T, eta_azi_R, ...
+                                    t, D_0, P, Q, p, q, psi_ver_T, psi_azi_T, psi_ver_R, psi_azi_R);
+
+rho_FCF_NLoS_cluster_C = rho_FCF_cluster_C(j, c, f_c, delta_f_c, v_T, v_R, eta_ver_T, eta_azi_T, ...
+                                                    eta_azi_R, t, xi_R_n_0, D_0, H_0, P, Q, p, q, ...
+                                                    mu_AAoA, sigma_AAoA, mu_EAoA, sigma_EAoA, ...
+                                                    psi_ver_T, psi_azi_T, psi_ver_R, psi_azi_R);
+chi_m_sub = 0.8 + 0.2*rand();
+varphi_m_sud = 2*pi*rand();
+rho_FCF_VLoS_RIS_C = rho_FCF_RIS_C(j, c, f_c, delta_f_c, v_T, v_R, eta_ver_T, eta_azi_T, eta_azi_R, ...
+                                               x_m_sub, y_m_sub, z_m_sub, t, D_0, H_0, P, Q, p, q, ...
+                                               psi_ver_T, psi_azi_T, psi_ver_R, psi_azi_R, chi_m_sub, varphi_m_sud);
+
+abs_rho_NLoS_C = abs(rho_FCF_NLoS_cluster_C);
+abs_rho_VLoS_C = abs(rho_FCF_VLoS_RIS_C);
+abs_rho_LoS_C  = abs(rho_FCF_LoS_C);
+% 对幅度进行加权平均（非相干叠加）
+smooth_mixed_C = (1)/(K+1) * abs_rho_NLoS_C + ...
+                 (K)/(K+1) * (alpha * abs_rho_VLoS_C + (1 - alpha) * abs_rho_LoS_C);
+
+% 归一化处理，得到最终的光滑混合曲线
+rho_FCF_LoS_cluster_RIS_C = smooth_mixed_C / smooth_mixed_C(1);
+% 检查数据维度
+fprintf('rho_FCF_LoS_C 大小: %s\n', mat2str(size(rho_FCF_LoS_C)));
+fprintf('rho_FCF_NLoS_cluster_C 大小: %s\n', mat2str(size(rho_FCF_NLoS_cluster_C)));
+fprintf('rho_FCF_VLoS_RIS_C 大小: %s\n', mat2str(size(rho_FCF_VLoS_RIS_C)));
+fprintf('rho_CCF_LoS_cluster_RIS_C 大小: %s\n', mat2str(size(rho_FCF_LoS_cluster_RIS_C)));
+% === 数据质量检查和修复 ===
+fprintf('\n=== 数据质量检查 ===\n');
+fprintf('LoS数据范围: [%.6f, %.6f]\n', min(abs(rho_FCF_LoS_C)), max(abs(rho_FCF_LoS_C)));
+fprintf('NLoS数据范围: [%.6f, %.6f]\n', min(abs(rho_FCF_NLoS_cluster_C)), max(abs(rho_FCF_NLoS_cluster_C)));
+fprintf('VLoS数据范围: [%.6f, %.6f]\n', min(abs(rho_FCF_VLoS_RIS_C)), max(abs(rho_FCF_VLoS_RIS_C)));
+fprintf('rho_CCF_LoS_cluster_RIS_C数据范围: [%.6f, %.6f]\n', min(abs(rho_FCF_LoS_cluster_RIS_C)), max(abs(rho_FCF_LoS_cluster_RIS_C)));
+%% 生成训练数据集 
+num_samples = 1000;  % 增加样本数量
+inputs = zeros(9, num_samples);  % 增加到12维输入特征
+targets = zeros(4, num_samples);   % 3个输出（LoS, NLoS, VLoS）
+sample_weights = ones(1, num_samples);%初始化样本
+fprintf('正在生成 %d 个训练样本...\n', num_samples);
+for i = 1:num_samples
+    r = rand(); % 生成一个随机数来决定路径类型
+    if r < 0.25  % 25% LoS
+        path_focus = 1;
+        noise_scale = [0.005, 0.02, 0.02, 0.01];
+        sample_weights(i) = 3.0;
+    elseif r < 0.50 % 25% NLoS
+        path_focus = 2;
+        noise_scale = [0.01, 0.005, 0.02, 0.01];
+        sample_weights(i) = 1.0;
+    elseif r < 0.75 % 25% VLoS
+        path_focus = 3;
+        noise_scale = [0.01, 0.02, 0.005, 0.01];
+        sample_weights(i) = 1.0;
+    else % 25% 混合路径
+        path_focus = 4;
+        noise_scale = [0.01, 0.01, 0.01, 0.005]; % 给混合路径本身最小的噪声
+        sample_weights(i) = 2.0; % 混合路径也比较重要，给中等权重
+    end
+    idx = randi(N); % 使用随机采样简化，您的智能采样函数也可保留
+    delta_f_c_sample = delta_f_c(idx);
+
+    v_T_sample = 5 + 10 * rand(); v_R_sample = 3 + 9 * rand();
+    D_0_sample = 50 + 150 * rand();
+    psi_azi_T_sample = pi/6 + pi/3 * rand(); psi_azi_R_sample = pi/6 + pi/3 * rand();
+    psi_ver_T_sample = pi/8 + pi/4 * rand(); psi_ver_R_sample = pi/8 + pi/4 * rand();
+    
+    % RIS参数随机化
+    chi_m_sub_sample = 0.7 + 0.3*rand();
+    
+    % 构造更丰富的输入特征向量
+    inputs(:, i) = [
+        delta_f_c_sample;                              % 1. 归一化天线间距
+        v_T_sample/c;                             % 2. 归一化发射端速度
+        v_R_sample/c;                             % 3. 归一化接收端速度
+        D_0_sample;                        % 4. 归一化距离
+        psi_azi_T_sample;                         % 5. 发射端方位角
+        psi_azi_R_sample;                         % 6. 接收端方位角
+        cos(psi_azi_T_sample);                    % 7. 余弦特征
+        sin(psi_azi_R_sample);                    % 8. 正弦特征
+        path_focus;                               % 9. 路径类型标识
+    ];
+    
+    % 对应的理论输出值
+    base_targets = [
+        abs(rho_FCF_LoS_C(idx));
+        abs(rho_FCF_NLoS_cluster_C(idx));
+        abs(rho_FCF_VLoS_RIS_C(idx));
+        abs(rho_FCF_LoS_cluster_RIS_C(idx));
+    ];
+    
+    % 添加适应性噪声
+    for k = 1:4
+        noise = noise_scale(k) * randn();
+        targets(k, i) = max(0, base_targets(k) * (1 + noise));
+    end
+end
+
+fprintf('数据生成完毕。输入矩阵大小: %s, 目标矩阵大小: %s\n', ...
+        mat2str(size(inputs)), mat2str(size(targets)));
+%% 数据预处理
+% 输入标准化 - 使用z-score标准化
+input_mean = mean(inputs, 2);
+input_std = std(inputs, 0, 2) + eps;
+inputs_normalized = (inputs - input_mean) ./ input_std;
+
+% 输出标准化 - 分别处理每种路径
+target_mean = mean(targets, 2);
+target_std = std(targets, 0, 2) + eps;
+targets_normalized = (targets - target_mean) ./ target_std;
+
+% 针对性数据增强
+augment_ratio = 0.15;
+num_augment = round(augment_ratio * num_samples);
+
+% 重点增强LoS路径数据
+los_indices = find(inputs(9,:) == 1);  % 找到LoS样本
+if ~isempty(los_indices)
+    % 选择LoS样本进行增强
+    aug_los_count = round(0.6 * num_augment);  % 60%的增强样本来自LoS
+    aug_los_indices = los_indices(randi(length(los_indices), 1, aug_los_count));
+    
+    % 其余样本随机选择
+    remaining_indices = setdiff(1:num_samples, los_indices);
+    aug_other_indices = remaining_indices(randi(length(remaining_indices), 1, num_augment - aug_los_count));
+    
+    aug_indices = [aug_los_indices, aug_other_indices];
+else
+    aug_indices = randi(num_samples, 1, num_augment);
+end
+
+inputs_aug = inputs_normalized(:, aug_indices) + 0.05 * randn(size(inputs_normalized, 1), num_augment);
+targets_aug = targets_normalized(:, aug_indices) + 0.02 * randn(size(targets_normalized, 1), num_augment);
+
+% 合并原始和增强数据
+inputs_final = [inputs_normalized, inputs_aug];
+targets_final = [targets_normalized, targets_aug];
+
+fprintf('增强后数据大小: %s\n', mat2str(size(inputs_final)));
+
+%% 改进的网络设计与训练
+% 调整网络架构 - 考虑到LoS路径的特殊性
+hiddenLayerSize = [80, 60, 40, 20];  % 稍微增大网络容量
+net = feedforwardnet(hiddenLayerSize, 'trainlm');
+
+% 网络配置
+net.input.processFcns = {};
+net.output.processFcns = {};
+
+% 优化的训练参数
+net.trainParam.epochs = 800;           % 增加最大训练轮数
+net.trainParam.max_fail = 6;          % 适中的早停容忍度
+net.trainParam.min_grad = 1e-10;       
+net.trainParam.mu = 0.001;             
+net.trainParam.mu_dec = 0.1;           
+net.trainParam.mu_inc = 10;            
+net.trainParam.mu_max = 1e10;          
+net.performFcn = 'mse';
+net.trainParam.goal = 1e-12;           
+net.trainParam.show = 25;              
+net.trainParam.showWindow = true;      
+net.trainParam.showCommandLine = true; 
+
+% 激活函数设置 - 混合激活函数
+for i = 1:length(hiddenLayerSize)
+    if i <= 2
+        net.layers{i}.transferFcn = 'tansig'; % 前两层使用tansig
+    else
+        net.layers{i}.transferFcn = 'logsig'; % 后面层使用logsig
+    end
+end
+net.layers{end}.transferFcn = 'purelin'; % 输出层
+
+% 数据集划分 - 确保LoS样本在各集合中都有代表
+net.divideFcn = 'dividerand';
+net.divideParam.trainRatio = 0.80;     
+net.divideParam.valRatio = 0.10;       
+net.divideParam.testRatio = 0.10;      
+
+% 权重初始化
+net = init(net);
+
+% 使用Xavier初始化
+for i = 1:length(net.layers)
+    if ~isempty(net.IW{i,1})
+        [fan_in, fan_out] = size(net.IW{i,1});
+        limit = sqrt(6 / (fan_in + fan_out));
+        net.IW{i,1} = 2 * limit * rand(size(net.IW{i,1})) - limit;
+    end
+    for j = 1:length(net.layers)
+        if ~isempty(net.LW{i,j})
+            [fan_in, fan_out] = size(net.LW{i,j});
+            limit = sqrt(6 / (fan_in + fan_out));
+            net.LW{i,j} = 2 * limit * rand(size(net.LW{i,j})) - limit;
+        end
+    end
+end
+
+% 执行训练
+[net, tr] = train(net, inputs_final, targets_final);
+fprintf('训练完成，实际轮数: %d\n', tr.num_epochs);
+%% 模型测试和评估
+% 使用原始理论数据进行测试
+test_inputs = zeros(9, N);
+for i = 1:N
+    test_inputs(:, i) = [
+        delta_f_c(i);
+        v_T/c;
+        v_R/c;
+        D_0;
+        psi_azi_T;
+        psi_azi_R;
+        cos(psi_azi_T);        
+        sin(psi_azi_R);
+        4;  % 混合路径类型
+    ];
+end
+
+% 标准化测试输入
+test_inputs_normalized = (test_inputs - input_mean) ./ input_std;
+
+% 预测
+predictions_normalized = net(test_inputs_normalized);
+
+% 反标准化
+predictions = predictions_normalized .* target_std + target_mean;
+predictions = max(predictions, 0); % 确保非负
+predictions = min(predictions, 1);
+
+% 理论值输出
+theory_values = [
+    abs(rho_FCF_LoS_C);
+    abs(rho_FCF_NLoS_cluster_C);
+    abs(rho_FCF_VLoS_RIS_C);
+    abs(rho_FCF_LoS_cluster_RIS_C);
+];
+%% 绘图
+sample_step = 10;  % 调整这个值控制稀疏程度
+delta_f_c_sparse = delta_f_c(1:sample_step:end);
+figure('Position', [100, 100, 1000, 1000]);
+hold on;
+
+% 路径信息
+path_names = {'LoS, C', 'NLoS, C', 'VLoS, C', 'LoS+NLoS+VLoS, C'};
+colors = {'b', 'c', 'm', 'r'};
+
+% 绘图并计算性能指标
+for k = 1:4
+    % 绘制理论与预测曲线
+    plot(delta_f_c, theory_values(k,:), [colors{k} '-'], 'LineWidth', 2, 'DisplayName', sprintf('%s (Theroy)', path_names{k}));
+    pred_sparse = predictions(k,1:sample_step:end);
+    plot(delta_f_c_sparse, pred_sparse, [colors{k} '--d'], 'LineWidth', 1.5, 'DisplayName', sprintf('%s (MLP-NN)', path_names{k}));
+    
+    % 计算RMSE
+    y_true = theory_values(k,:);
+    y_pred = predictions(k,:);
+    RMSE = sqrt(mean((y_true - y_pred).^2));
+    
+    % 在图中添加 RMSE 标注（使用相对位置）
+    x_text_pos = 0.75;
+    y_text_pos = 0.90 - 0.05 * (k-1);  % 分层排布
+    text(x_text_pos, y_text_pos, ...
+        sprintf('%s RMSE = %.4f', path_names{k}, RMSE), ...
+        'Units', 'normalized', ...
+        'FontSize', 16, 'Color', colors{k}, ...
+        'BackgroundColor', 'white', 'EdgeColor', 'black', 'Margin', 3);
+end
+
+% 图属性设置
+xlab = xlabel('');
+set(xlab, 'Interpreter', 'latex', 'string',{'Frequency difference, $\Delta f$, [MHz]'}, 'Fontsize', 16);
+ylab = ylabel('');
+set(ylab, 'Interpreter', 'latex', 'string',{'Normalized FCFs'}, 'Fontsize', 16);
+xlim([0 30]);
+ylim([0 1]);  % y 轴限制
+xticks(0:5:30);  % x 轴取值间隔变大
+grid on
+legend('Interpreter', 'latex', 'FontSize', 16, 'Location', 'best');
+box on
+
