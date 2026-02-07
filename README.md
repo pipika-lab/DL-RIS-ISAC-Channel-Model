@@ -97,7 +97,6 @@ These files serve as ground-truth labels for neural network training.
 3️⃣ Train MLP Model
 main_train_mlp_multi_input_dynamic.m
 
-
 Includes:
 
 multi-dimensional physical features
@@ -111,7 +110,6 @@ performance evaluation (RMSE / MAE / R²)
 4️⃣ Prediction & Comparison
 main_predict_and_compare.m
 
-
 Generates:
 
 theoretical vs predicted curves
@@ -123,73 +121,9 @@ visualization plots
 🧠 Methodology Overview
 Channel Modeling
 
-The RIS reflection coefficient of each element is modeled as
-
-𝜒
-𝑚
-𝑥
-,
-𝑚
-𝑧
-(
-𝑡
-)
-𝑒
-𝑗
-𝜙
-𝑚
-𝑥
-,
-𝑚
-𝑧
-(
-𝑡
-)
-χ
-m
-x
-	​
-
-,m
-z
-	​
-
-	​
-
-(t)e
-jϕ
-m
-x
-	​
-
-,m
-z
-	​
-
-	​
-
-(t)
+The RIS reflection coefficient of each element is modeled as $e^(j(φ_(m_x,m_z ) (t)-φ_(m_x,m_z ) (t+Δt)))$
 
 which directly influences the spatio-temporal channel responses via
-
-𝑒
-𝑗
-(
-𝜙
-(
-𝑡
-)
-−
-𝜙
-(
-𝑡
-+
-Δ
-𝑡
-)
-)
-e
-j(ϕ(t)−ϕ(t+Δt))
 
 This phase-difference term explicitly affects:
 
