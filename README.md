@@ -66,27 +66,19 @@ are thoroughly investigated.
 ## ⚙️ Requirements
 
 - MATLAB R2021b or later
-- Deep Learning Toolbox
-- Parallel Computing Toolbox (optional for acceleration)
-
+  All experiments are performed on a Windows 11 system equipped with an AMD Ryzen 9 7945HX, and NVIDIA GeForce RTX 4060 GPU with 8 GB.
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1️⃣ Channel Simulation
 Run:
-
-```matlab
+```matlab 
 main_simulation_ccf.m
 main_simulation_acf.m
 main_simulation_fcf.m
-This will generate:
+This will generate: theoretical CCF / ACF / FCF curves; RIS size comparison results; sensing vs communication statistics.
 
-theoretical CCF / ACF / FCF curves
-
-RIS size comparison results
-
-sensing vs communication statistics
 2️⃣ Dataset Generation
 generate_training_dataset.m
 rho_CCF_*.fig
@@ -98,105 +90,48 @@ These files serve as ground-truth labels for neural network training.
 main_train_mlp_multi_input_dynamic.m
 
 Includes:
-
 multi-dimensional physical features
-
 normalization
-
 adaptive sampling
-
 performance evaluation (RMSE / MAE / R²)
 
 4️⃣ Prediction & Comparison
 main_predict_and_compare.m
 
 Generates:
-
 theoretical vs predicted curves
-
 error metrics
-
 visualization plots
 
 🧠 Methodology Overview
-Channel Modeling
 
-The RIS reflection coefficient of each element is modeled as $e^(j(φ_(m_x,m_z ) (t)-φ_(m_x,m_z ) (t+Δt)))$
-
-which directly influences the spatio-temporal channel responses via
-
-This phase-difference term explicitly affects:
-
-spatial CCFs
-
-temporal ACFs
-
-propagation non-stationarity
-
+Channel Modeling:
+The RIS reflection coefficient of each element is modeled as χ_(m_x,m_z ) (t) e^(jφ_(m_x,m_z ) (t) )，which directly influences the spatio-temporal channel responses via e^(j(φ_(m_x,m_z ) (t)-φ_(m_x,m_z ) (t+Δt))).
+This phase-difference term explicitly affects: spatial CCFs, temporal ACFs, propagation non-stationarity.
 Larger RIS dimensions introduce stronger phase diversity, resulting in faster correlation decay.
 
-Learning Enhancement
-
-The MLP learns the nonlinear mapping:
-
-Physical Parameters
-→
-Statistical Channel Metrics
-Physical Parameters→Statistical Channel Metrics
-
-Advantages:
-
-avoids repeated integral computations
-
-accelerates simulations
-
-preserves physical interpretability
-
-suitable for real-time system design
+Learning Enhancement:
+The MLP learns the nonlinear mapping: Physical Parameters→Statistical Channel Metrics
+Advantages: (1) avoids repeated integral computations; (2) accelerates simulations; (3) preserves physical interpretability; (4) suitable for real-time system design.
 
 📊 Example Results
 
 Typical observations:
-
 spatial correlations decay with antenna spacing
-
 temporal ACFs show non-stationary behavior
-
 sensing channel exhibits stronger fluctuations than communication channel
-
 larger RIS → lower spatial correlation
-
 MLP predictions closely match theoretical curves
 
 🔬 Reproducibility Tips
 
 Fix random seed: rng(2024)
-
 Increase RIS size gradually (30×30 → 100×100)
-
 Ensure dataset normalization before training
-
 Use sufficient samples (>1000) for stable learning
-
-📖 Citation
-
-If you use this code or find it helpful, please cite:
-
-[Your Paper Citation Here]
-
-📬 Contact
-
-For questions or collaborations, please contact:
-
-Author: [Your Name]
-Email: [your_email]
 
 ⭐ Notes
 
-This repository aims to bridge:
-
-Physics-based modeling + Data-driven learning
-
-to provide an efficient and interpretable solution for RIS-assisted V2V ISAC channel analysis.
+This repository aims to bridge: Physics-based modeling + Data-driven learning to provide an efficient and interpretable solution for RIS-assisted V2V ISAC channel analysis.
 
 
