@@ -71,7 +71,7 @@ are thoroughly investigated.
 
 ## Quick Start
 
-### 1️⃣ Channel Simulation
+1️⃣ Channel Simulation
 Run:
 ```matlab 
 main_simulation_ccf.m
@@ -103,7 +103,7 @@ theoretical vs predicted curves
 error metrics
 visualization plots
 
-🧠 Methodology Overview
+## 🧠 Methodology Overview
 
 Channel Modeling:
 The RIS reflection coefficient of each element is modeled as χ_(m_x,m_z ) (t) e^(jφ_(m_x,m_z ) (t) )，which directly influences the spatio-temporal channel responses via e^(j(φ_(m_x,m_z ) (t)-φ_(m_x,m_z ) (t+Δt))).
@@ -114,7 +114,7 @@ Learning Enhancement:
 The MLP learns the nonlinear mapping: Physical Parameters→Statistical Channel Metrics
 Advantages: (1) avoids repeated integral computations; (2) accelerates simulations; (3) preserves physical interpretability; (4) suitable for real-time system design.
 
-📊 Example Results
+## 📊 Example Results
 
 Typical observations:
 spatial correlations decay with antenna spacing
@@ -123,14 +123,14 @@ sensing channel exhibits stronger fluctuations than communication channel
 larger RIS → lower spatial correlation
 MLP predictions closely match theoretical curves
 
-🔬 Reproducibility Tips
+## 🔬 Reproducibility Tips
 
 Fix random seed: rng(2024)
 Increase RIS size gradually (30×30 → 100×100)
 Ensure dataset normalization before training
 Use sufficient samples (>1000) for stable learning
 
-⭐ Notes
+## ⭐ Notes
 
 This repository aims to bridge: Physics-based modeling + Data-driven learning to provide an efficient and interpretable solution for RIS-assisted V2V ISAC channel analysis.
 
